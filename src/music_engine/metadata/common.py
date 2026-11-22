@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import json
 import re
 from urllib.error import HTTPError, URLError
@@ -51,11 +52,19 @@ def normalize(value: str) -> str:
 
 
 def album_matches(expected: str, actual: str) -> bool:
+    """Match normalized album titles, allowing small transliteration variants."""
     expected_name, actual_name = normalize(expected), normalize(actual)
     return bool(
         expected_name
         and actual_name
-        and (expected_name == actual_name or actual_name.startswith(expected_name))
+        and (
+            expected_name == actual_name
+            or actual_name.startswith(expected_name)
+            or (
+                min(len(expected_name), len(actual_name)) >= 10
+                and SequenceMatcher(None, expected_name, actual_name).ratio() >= 0.9
+            )
+        )
     )
 
 

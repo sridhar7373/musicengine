@@ -13,7 +13,9 @@ class MetadataProvider(ABC):
     name = "Metadata provider"
 
     @abstractmethod
-    def lookup(self, title: str, album: str, artist: str) -> TrackMetadata | None:
+    def lookup(
+        self, title: str, album: str, artist: str, delay: float = 1.0
+    ) -> TrackMetadata | None:
         """Return a confident match, or None when this source has no match."""
 
 

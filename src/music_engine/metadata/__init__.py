@@ -29,7 +29,7 @@ def find_track_metadata(
     failures = []
     for index, provider_type in enumerate(METADATA_PROVIDERS):
         try:
-            result = provider_type().lookup(title, album, artist)
+            result = provider_type().lookup(title, album, artist, delay=delay)
         except RuntimeError as exc:
             failures.append(str(exc))
             result = None

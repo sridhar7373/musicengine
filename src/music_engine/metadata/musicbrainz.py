@@ -12,7 +12,9 @@ from .common import TrackMetadata, album_matches, credit_name, json_get, normali
 class MusicBrainzMetadataProvider(MetadataProvider):
     name = "MusicBrainz"
 
-    def lookup(self, title: str, album: str, artist: str) -> TrackMetadata | None:
+    def lookup(
+        self, title: str, album: str, artist: str, delay: float = 1.0
+    ) -> TrackMetadata | None:
         query = f'recording:"{title}" AND release:"{album}" AND artist:"{artist}"'
         params = urlencode({"query": query, "fmt": "json", "limit": 10, "inc": "releases"})
         payload = json_get(f"https://musicbrainz.org/ws/2/recording/?{params}")
