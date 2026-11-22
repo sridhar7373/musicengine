@@ -40,7 +40,7 @@ The default provider resolves the artist name from its directory. The CLI shows 
 music-engine download "Vijay Antony" --output ~/Music --dry-run
 ```
 
-Every new download is enriched automatically: the CLI looks up ID3 tags with iTunes first and MusicBrainz as a fallback, then looks for a front cover in the MusicBrainz Cover Art Archive. Apple’s Search API artwork is not stored in local files; its published terms limit that artwork to promotion of the matching Store content. To update an MP3 that was already downloaded:
+Every new download is enriched automatically: the CLI looks up ID3 tags with iTunes first and MusicBrainz as a fallback. It uses artwork from the matched iTunes result first, then falls back to the MusicBrainz Cover Art Archive. To update an MP3 that was already downloaded:
 
 ```sh
 music-engine enrich "~/Music/Vijay Antony/Vedi/Bombay Ponnu.mp3"

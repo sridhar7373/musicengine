@@ -28,6 +28,7 @@ class TrackMetadata:
     disc_number: int | None = None
     genre: str | None = None
     source: str = ""
+    artwork_url: str | None = None
 
 
 def json_get(url: str) -> dict:

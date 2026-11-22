@@ -23,5 +23,5 @@ class ArtworkProvider(ABC):
     name = "Artwork provider"
 
     @abstractmethod
-    def lookup(self, album: str, artist: str, delay: float) -> tuple[bytes, str] | None:
+    def lookup(self, metadata: TrackMetadata, delay: float) -> tuple[bytes, str] | None:
         """Return image bytes and MIME type, or None when no cover is available."""

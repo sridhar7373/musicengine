@@ -6,16 +6,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .base import ArtworkProvider
-from .common import USER_AGENT
+from .common import TrackMetadata, USER_AGENT
 from .musicbrainz import cover_art_url
 
 
 class CoverArtArchiveProvider(ArtworkProvider):
     name = "MusicBrainz Cover Art Archive"
 
-    def lookup(self, album: str, artist: str, delay: float) -> tuple[bytes, str] | None:
+    def lookup(self, metadata: TrackMetadata, delay: float) -> tuple[bytes, str] | None:
         try:
-            image_url = cover_art_url(album, artist, delay)
+            image_url = cover_art_url(metadata.album, metadata.album_artist, delay)
         except RuntimeError:
             return None
         if not image_url:

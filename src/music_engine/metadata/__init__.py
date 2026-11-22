@@ -8,6 +8,7 @@ from .base import ArtworkProvider, MetadataProvider
 from .common import MetadataNotFound, TrackMetadata
 from .cover_art_archive import CoverArtArchiveProvider
 from .itunes import ITunesMetadataProvider
+from .itunes_artwork import ITunesArtworkProvider
 from .musicbrainz import MusicBrainzMetadataProvider
 
 
@@ -15,7 +16,10 @@ METADATA_PROVIDERS: tuple[type[MetadataProvider], ...] = (
     ITunesMetadataProvider,
     MusicBrainzMetadataProvider,
 )
-ARTWORK_PROVIDERS: tuple[type[ArtworkProvider], ...] = (CoverArtArchiveProvider,)
+ARTWORK_PROVIDERS: tuple[type[ArtworkProvider], ...] = (
+    ITunesArtworkProvider,
+    CoverArtArchiveProvider,
+)
 
 
 def find_track_metadata(
@@ -38,11 +42,11 @@ def find_track_metadata(
     raise MetadataNotFound(f"No catalog match for {title!r} from {album!r}.")
 
 
-def get_cover_art(album: str, artist: str, delay: float = 1.0) -> tuple[bytes, str] | None:
+def get_cover_art(metadata: TrackMetadata, delay: float = 1.0) -> tuple[bytes, str] | None:
     """Try registered artwork sources in order."""
     for index, provider_type in enumerate(ARTWORK_PROVIDERS):
         try:
-            result = provider_type().lookup(album, artist, delay)
+            result = provider_type().lookup(metadata, delay)
         except RuntimeError:
             result = None
         if result:

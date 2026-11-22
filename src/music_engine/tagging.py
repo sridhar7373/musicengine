@@ -12,6 +12,22 @@ from mutagen.mp3 import MP3
 from .metadata import TrackMetadata
 
 
+def _remove_id3v1(path: Path) -> None:
+    size = path.stat().st_size
+    if size < 128:
+        return
+    with path.open("r+b") as audio_file:
+        audio_file.seek(-128, 2)
+        if audio_file.read(3) == b"TAG":
+            audio_file.truncate(size - 128)
+
+
+def _remove_site_frames(tags) -> None:
+    for key, frame in list(tags.items()):
+        if "isaimini" in key.casefold() or "isaimini" in repr(frame).casefold():
+            del tags[key]
+
+
 def update_mp3(path: Path, metadata: TrackMetadata, cover: tuple[bytes, str] | None) -> bool:
     """Atomically replace site tags/artwork; return whether a new cover was added."""
     if path.suffix.casefold() != ".mp3" or not path.is_file():
@@ -24,6 +40,7 @@ def update_mp3(path: Path, metadata: TrackMetadata, cover: tuple[bytes, str] | N
         ) as temporary:
             temporary_path = Path(temporary.name)
         shutil.copy2(path, temporary_path)
+        _remove_id3v1(temporary_path)
 
         audio = MP3(temporary_path, ID3=ID3)
         if audio.tags is None:
@@ -34,6 +51,7 @@ def update_mp3(path: Path, metadata: TrackMetadata, cover: tuple[bytes, str] | N
             "APIC", "COMM", "TXXX", "WXXX", "WCOM", "WOAR", "TCOP", "TPUB", "TENC",
         ):
             tags.delall(frame)
+        _remove_site_frames(tags)
 
         tags.add(TIT2(encoding=3, text=[metadata.title]))
         tags.add(TPE1(encoding=3, text=[metadata.performers]))
@@ -76,6 +94,6 @@ def enrich_mp3(
         import time
 
         time.sleep(delay)
-    cover = get_cover_art(album, artist, delay=delay)
+    cover = get_cover_art(metadata, delay=delay)
     cover_added = update_mp3(path, metadata, cover)
     return metadata, cover_added

@@ -45,4 +45,5 @@ class ITunesMetadataProvider(MetadataProvider):
             disc_number=result.get("discNumber"),
             genre=result.get("primaryGenreName"),
             source=self.name,
+            artwork_url=result.get("artworkUrl100"),
         )
