@@ -4,15 +4,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import sys
-import time
 
+from .service import build_download_plan, destination_for_track, enrich_file, execute_download
 from .console import Console
-from .library import track_path
-from .providers import provider_for_artist_input
-from .providers.base import Album, Track
 from .settings import load_default_artist, save_default_artist
-from .tagging import enrich_mp3, has_site_branding
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,13 +48,12 @@ def _parser() -> argparse.ArgumentParser:
         "--delay", type=float, default=1.0, help="Pause between catalog requests in seconds"
     )
     enrich.add_argument("--no-color", action="store_true", help="Disable terminal colors")
+
+    serve = commands.add_parser("serve", help="Run the local Flask HTTP API")
+    serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost)")
+    serve.add_argument("--port", type=int, default=5000, help="Port (default: 5000)")
+    serve.add_argument("--no-color", action="store_true", help="Disable terminal colors")
     return parser
-
-
-def _matches(album: Album, filters: list[str] | None) -> bool:
-    if not filters:
-        return True
-    return any(term.casefold() in album.title.casefold() for term in filters)
 
 
 def _confirm(count: int, root: Path, console: Console, refresh_count: int = 0) -> bool:
@@ -76,11 +70,6 @@ def _confirm(count: int, root: Path, console: Console, refresh_count: int = 0) -
         return False
     return answer.strip().casefold() in {"y", "yes"}
 
-
-def _track_destination(output: Path, artist: str, track: Track) -> Path:
-    return track_path(output, artist, track.album, track.title)
-
-
 def run_download(args: argparse.Namespace, console: Console) -> int:
     if args.delay < 0:
         console.error("--delay must be zero or greater.")
@@ -90,55 +79,43 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
     if not artist_input:
         console.error('Provide an artist or set one with: music-engine set-artist "Vijay Antony"')
         return 2
-    provider, artist_url = provider_for_artist_input(artist_input, delay=args.delay)
-    artist, albums = provider.artist_albums(artist_url, delay=args.delay)
-    albums = [album for album in albums if _matches(album, args.album)]
-    if not albums:
-        console.error("No matching albums found.")
+    try:
+        plan = build_download_plan(
+            artist_input,
+            output=args.output,
+            albums=args.album,
+            delay=args.delay,
+            no_metadata=args.no_metadata,
+            on_album=(
+                (lambda album, _index, _total: console.line(f"Reading {album.title}"))
+                if args.verbose
+                else lambda _album, index, total: console.progress("Scanning", index, total)
+            ),
+        )
+    except ValueError as exc:
+        console.end_progress()
+        console.error(str(exc))
         return 1
-
-    tracks: list[Track] = []
-    for index, album in enumerate(albums, start=1):
-        if args.verbose:
-            console.line(f"Reading {album.title}")
-        else:
-            console.progress("Scanning", index, len(albums))
-        tracks.extend(provider.album_tracks(album, delay=args.delay))
     console.end_progress()
-    if not tracks:
-        console.error("No downloadable tracks found.")
-        return 1
 
     console.line(
-        f"{console.paint(provider.name, 'cyan', 'bold')} "
-        f"{console.paint('·', 'dim')} {console.paint(artist, 'bold')}"
+        f"{console.paint(plan.provider_name, 'cyan', 'bold')} "
+        f"{console.paint('·', 'dim')} {console.paint(plan.artist, 'bold')}"
     )
-    skipped = 0
-    pending: list[Track] = []
-    refresh_pending: list[Track] = []
-    for track in tracks:
-        destination = _track_destination(args.output, artist, track)
-        if destination.exists():
-            if not args.no_metadata and has_site_branding(destination):
-                refresh_pending.append(track)
-            else:
-                skipped += 1
-        else:
-            pending.append(track)
 
     console.line(
-        f"{len(albums)} albums {console.paint('·', 'dim')} "
-        f"{len(tracks)} tracks {console.paint('·', 'dim')} "
-        f"{len(pending)} new {console.paint('·', 'dim')} "
-        f"{len(refresh_pending)} metadata refresh {console.paint('·', 'dim')} "
-        f"{skipped} up to date"
+        f"{len(plan.albums)} albums {console.paint('·', 'dim')} "
+        f"{len(plan.tracks)} tracks {console.paint('·', 'dim')} "
+        f"{len(plan.new_tracks)} new {console.paint('·', 'dim')} "
+        f"{len(plan.refresh_tracks)} metadata refresh {console.paint('·', 'dim')} "
+        f"{plan.up_to_date} up to date"
     )
     if args.verbose:
         refresh_paths = {
-            _track_destination(args.output, artist, track) for track in refresh_pending
+            destination_for_track(plan, track) for track in plan.refresh_tracks
         }
-        for track in tracks:
-            destination = _track_destination(args.output, artist, track)
+        for track in plan.tracks:
+            destination = destination_for_track(plan, track)
             if destination in refresh_paths:
                 marker = "↻"
             else:
@@ -148,78 +125,56 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
     if args.dry_run:
         console.line(console.paint("Preview only · no files changed", "yellow"))
         return 0
-    if not pending and not refresh_pending:
+    if not plan.new_tracks and not plan.refresh_tracks:
         console.line(console.paint("Library is up to date", "green"))
         return 0
     if not args.yes and not _confirm(
-        len(pending), args.output, console, len(refresh_pending)
+        len(plan.new_tracks), plan.output, console, len(plan.refresh_tracks)
     ):
         console.line(console.paint("Cancelled", "yellow"))
         return 0
 
-    downloaded = 0
-    tagged = 0
-    refreshed = 0
-    covers = 0
-    metadata_skipped = 0
-    failures = 0
-    for index, track in enumerate(pending, start=1):
-        destination = _track_destination(args.output, artist, track)
-        console.start_download(f"Downloading {index:02d}/{len(pending)} {track.title}")
-        try:
-            size = provider.download_track(
-                track, destination, progress=console.download_progress
-            )
-            console.finish_download(size)
-            downloaded += 1
-            if not args.no_metadata:
-                try:
-                    _, cover_added = enrich_mp3(
-                        destination, track.title, track.album, artist, delay=args.delay
-                    )
-                    tagged += 1
-                    covers += int(cover_added)
-                except Exception as exc:
-                    metadata_skipped += 1
-                    if args.verbose:
-                        console.error(f"Metadata skipped for {track.title}: {exc}")
-        except (OSError, RuntimeError, ValueError) as exc:
-            console.end_progress()
-            failures += 1
-            console.error(f"{track.album} / {track.title}: {exc}")
-        if args.delay and index < len(pending):
-            time.sleep(args.delay)
+    download_result = execute_download(
+        plan,
+        delay=args.delay,
+        on_track_start=lambda track, index, total: console.start_download(
+            f"Downloading {index:02d}/{total} {track.title}"
+        ),
+        on_progress=lambda _track, _index, _total, received, expected: console.download_progress(
+            received, expected
+        ),
+        on_track_complete=lambda _track, _index, _total, size: console.finish_download(size),
+        on_refresh_complete=(
+            (lambda track, index, total: console.line(
+                f"  ↻ Refreshed {index}/{total} {track.title}"
+            ))
+            if args.verbose
+            else None
+        ),
+    )
+    console.end_progress()
+    for failure in download_result.failures:
+        console.error(f"{failure.track.album} / {failure.track.title}: {failure.message}")
+    if args.verbose:
+        for failure in download_result.metadata_failures:
+            console.error(f"Metadata skipped for {failure.track.title}: {failure.message}")
 
-    for index, track in enumerate(refresh_pending, start=1):
-        destination = _track_destination(args.output, artist, track)
-        try:
-            _, cover_added = enrich_mp3(
-                destination, track.title, track.album, artist, delay=args.delay
-            )
-            tagged += 1
-            refreshed += 1
-            covers += int(cover_added)
-            if args.verbose:
-                console.line(f"  ↻ Refreshed {index}/{len(refresh_pending)} {track.title}")
-        except Exception as exc:
-            metadata_skipped += 1
-            if args.verbose:
-                console.error(f"Metadata skipped for {track.title}: {exc}")
-        if args.delay and index < len(refresh_pending):
-            time.sleep(args.delay)
-
-    result = [
-        f"{console.paint(str(downloaded), 'green')} downloaded",
-        f"{refreshed} refreshed",
-        f"{skipped} up to date",
+    summary = [
+        f"{console.paint(str(download_result.downloaded), 'green')} downloaded",
+        f"{download_result.refreshed} refreshed",
+        f"{download_result.up_to_date} up to date",
     ]
     if not args.no_metadata:
-        result.extend((f"{tagged} tagged", f"{covers} covers", f"{metadata_skipped} metadata skipped"))
-    result.append(
-        f"{console.paint(str(failures), 'red' if failures else 'green')} failed"
+        summary.extend((
+            f"{download_result.tagged} tagged",
+            f"{download_result.covers} covers",
+            f"{download_result.metadata_skipped} metadata skipped",
+        ))
+    summary.append(
+        f"{console.paint(str(len(download_result.failures)), 'red' if download_result.failures else 'green')} failed"
     )
-    console.line(f" {console.paint('·', 'dim')} ".join(result))
-    return 1 if failures else 0
+    console.line(f" {console.paint('·', 'dim')} ".join(summary))
+    return 1 if download_result.failures else 0
 
 
 def run_enrich(args: argparse.Namespace, console: Console) -> int:
@@ -227,12 +182,11 @@ def run_enrich(args: argparse.Namespace, console: Console) -> int:
         console.error("--delay must be zero or greater.")
         return 2
     path = args.path.expanduser()
-    title = args.title or path.stem
-    album = args.album or path.parent.name
-    artist = args.artist or path.parent.parent.name
-    metadata, cover_added = enrich_mp3(path, title, album, artist, delay=args.delay)
+    metadata, cover_added = enrich_file(
+        path, args.title, args.album, args.artist, delay=args.delay
+    )
     cover_message = (
-        "cover from Cover Art Archive"
+        "cover updated from catalog"
         if cover_added
         else "site art removed; no catalog cover found"
     )
@@ -259,6 +213,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "enrich":
             return run_enrich(args, console)
+        if args.command == "serve":
+            if not 1 <= args.port <= 65535:
+                console.error("--port must be between 1 and 65535.")
+                return 2
+            from .api import create_app
+
+            create_app().run(host=args.host, port=args.port, debug=False)
+            return 0
         return run_download(args, console)
     except (OSError, RuntimeError, ValueError) as exc:
         console.error(str(exc))

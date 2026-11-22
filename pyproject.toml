@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "music-engine"
 version = "0.1.0"
-description = "A small CLI for organizing song downloads from an authorized source."
+description = "A small CLI and Flask API for organizing authorized music downloads."
 requires-python = ">=3.10"
-dependencies = ["mutagen>=1.47"]
+dependencies = ["mutagen>=1.47", "Flask>=3.0"]
 
 [project.scripts]
 music-engine = "music_engine.cli:main"

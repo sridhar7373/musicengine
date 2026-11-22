@@ -1,6 +1,6 @@
 # Music Engine
 
-A small command line tool that collects albums from a supported provider's artist discography page, previews the tracks, and downloads selected songs into an artist/album folder structure. Isaimini is the first provider. Use it only for music you own or are authorized to download.
+A small CLI and local HTTP API that collect albums from a supported provider's artist discography page, preview tracks, and download them into an artist/album folder structure. Isaimini is the first provider. Use it only for music you own or are authorized to download.
 
 ## Install
 
@@ -11,6 +11,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
+
+This installs the CLI and Flask dependency.
 
 ## Download an artist discography
 
@@ -54,7 +56,63 @@ To restrict the download to matching album names, repeat `--album` as needed:
 music-engine download "Vijay Antony" --album Vedi --album Dishyum --output ~/Music
 ```
 
-Use `--yes` to skip the confirmation prompt. Existing tracks are skipped. Files are organized as `Artist/Album/Track.mp3` under the output directory. Requests are spaced by one second by default; increase this with `--delay 2` if needed. Add `--verbose` to list albums and tracks, or `--no-color` to disable colors.
+Use `--yes` to skip the confirmation prompt. Clean existing tracks are skipped; branded tracks are refreshed. Files are organized as `Artist/Album/Track.mp3` under the output directory. Requests are spaced by one second by default; increase this with `--delay 2` if needed. Add `--verbose` to list albums and tracks, or `--no-color` to disable colors.
+
+## Flask HTTP API
+
+Start the local Flask API. It binds to localhost by default:
+
+```sh
+music-engine serve
+```
+
+Preview a download plan without changing files:
+
+```sh
+curl -X POST http://127.0.0.1:5000/api/downloads/plan \
+  -H 'Content-Type: application/json' \
+  -d '{"artist":"Vijay Antony","albums":["Vedi"]}'
+```
+
+Run downloads and metadata refreshes:
+
+```sh
+curl -X POST http://127.0.0.1:5000/api/downloads \
+  -H 'Content-Type: application/json' \
+  -d '{"artist":"Vijay Antony","albums":["Vedi"],"delay":1.0}'
+```
+
+The API also provides `GET /api/health` and `POST /api/enrich`:
+
+```sh
+curl -X POST http://127.0.0.1:5000/api/enrich \
+  -H 'Content-Type: application/json' \
+  -d "{\"path\":\"$HOME/Music/Vijay Antony/Vedi/Bombay Ponnu.mp3\"}"
+```
+
+Downloads run synchronously and return a JSON summary when complete. Flask routes and the CLI use the same workflow in `src/music_engine/service.py`.
+
+## Python service API
+
+Python callers can use the shared service directly:
+
+```python
+from pathlib import Path
+from music_engine import build_download_plan, execute_download
+
+plan = build_download_plan(
+    "Vijay Antony",
+    output=Path.home() / "Music",
+    albums=["Vedi"],
+    delay=1.0,
+)
+print(f"{len(plan.new_tracks)} new; {len(plan.refresh_tracks)} need metadata refresh")
+
+result = execute_download(plan, delay=1.0)
+print(f"Downloaded {result.downloaded}; refreshed {result.refreshed}")
+```
+
+`build_download_plan` only reads the catalog and filesystem. Files are changed only when `execute_download` is called. Use `enrich_file(path, title=..., album=..., artist=...)` to enrich one MP3 programmatically.
 
 ## Provider code
 
