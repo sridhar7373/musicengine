@@ -12,7 +12,7 @@ from .library import track_path
 from .providers import provider_for_artist_input
 from .providers.base import Album, Track
 from .settings import load_default_artist, save_default_artist
-from .tagging import enrich_mp3
+from .tagging import enrich_mp3, has_site_branding
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -62,10 +62,16 @@ def _matches(album: Album, filters: list[str] | None) -> bool:
     return any(term.casefold() in album.title.casefold() for term in filters)
 
 
-def _confirm(count: int, root: Path, console: Console) -> bool:
-    prompt = console.paint("Download", "cyan", "bold")
+def _confirm(count: int, root: Path, console: Console, refresh_count: int = 0) -> bool:
+    prompt = console.paint("Proceed", "cyan", "bold")
+    actions = []
+    if count:
+        actions.append(f"{count} new tracks")
+    if refresh_count:
+        actions.append(f"refresh metadata on {refresh_count} existing tracks")
+    action = " and ".join(actions)
     try:
-        answer = input(f"{prompt} {count} tracks to {root.resolve()}? [y/N] ")
+        answer = input(f"{prompt} {action} to {root.resolve()}? [y/N] ")
     except EOFError:
         return False
     return answer.strip().casefold() in {"y", "yes"}
@@ -109,35 +115,51 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
     )
     skipped = 0
     pending: list[Track] = []
+    refresh_pending: list[Track] = []
     for track in tracks:
         destination = _track_destination(args.output, artist, track)
         if destination.exists():
-            skipped += 1
+            if not args.no_metadata and has_site_branding(destination):
+                refresh_pending.append(track)
+            else:
+                skipped += 1
         else:
             pending.append(track)
 
     console.line(
         f"{len(albums)} albums {console.paint('·', 'dim')} "
         f"{len(tracks)} tracks {console.paint('·', 'dim')} "
-        f"{skipped} already present"
+        f"{len(pending)} new {console.paint('·', 'dim')} "
+        f"{len(refresh_pending)} metadata refresh {console.paint('·', 'dim')} "
+        f"{skipped} up to date"
     )
     if args.verbose:
+        refresh_paths = {
+            _track_destination(args.output, artist, track) for track in refresh_pending
+        }
         for track in tracks:
-            marker = "✓" if _track_destination(args.output, artist, track).exists() else "·"
+            destination = _track_destination(args.output, artist, track)
+            if destination in refresh_paths:
+                marker = "↻"
+            else:
+                marker = "✓" if destination.exists() else "·"
             console.line(f"  {marker} {track.album} / {track.title}")
 
     if args.dry_run:
-        console.line(console.paint("Preview only · no files downloaded", "yellow"))
+        console.line(console.paint("Preview only · no files changed", "yellow"))
         return 0
-    if not pending:
+    if not pending and not refresh_pending:
         console.line(console.paint("Library is up to date", "green"))
         return 0
-    if not args.yes and not _confirm(len(pending), args.output, console):
+    if not args.yes and not _confirm(
+        len(pending), args.output, console, len(refresh_pending)
+    ):
         console.line(console.paint("Cancelled", "yellow"))
         return 0
 
     downloaded = 0
     tagged = 0
+    refreshed = 0
     covers = 0
     metadata_skipped = 0
     failures = 0
@@ -168,7 +190,29 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
         if args.delay and index < len(pending):
             time.sleep(args.delay)
 
-    result = [f"{console.paint(str(downloaded), 'green')} downloaded", f"{skipped} skipped"]
+    for index, track in enumerate(refresh_pending, start=1):
+        destination = _track_destination(args.output, artist, track)
+        try:
+            _, cover_added = enrich_mp3(
+                destination, track.title, track.album, artist, delay=args.delay
+            )
+            tagged += 1
+            refreshed += 1
+            covers += int(cover_added)
+            if args.verbose:
+                console.line(f"  ↻ Refreshed {index}/{len(refresh_pending)} {track.title}")
+        except Exception as exc:
+            metadata_skipped += 1
+            if args.verbose:
+                console.error(f"Metadata skipped for {track.title}: {exc}")
+        if args.delay and index < len(refresh_pending):
+            time.sleep(args.delay)
+
+    result = [
+        f"{console.paint(str(downloaded), 'green')} downloaded",
+        f"{refreshed} refreshed",
+        f"{skipped} up to date",
+    ]
     if not args.no_metadata:
         result.extend((f"{tagged} tagged", f"{covers} covers", f"{metadata_skipped} metadata skipped"))
     result.append(

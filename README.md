@@ -46,7 +46,7 @@ Every new download is enriched automatically: the CLI looks up ID3 tags with iTu
 music-engine enrich "~/Music/Vijay Antony/Vedi/Bombay Ponnu.mp3"
 ```
 
-The enrich command is only needed for files downloaded before automatic enrichment was added. It infers title, album, and artist from the filename and folders. Pass `--title`, `--album`, or `--artist` to override them. Use `--no-metadata` with `download` to skip enrichment.
+When you rerun `download`, existing tracks with Isaimini branding are queued for metadata refresh; clean tracks are skipped. The `enrich` command is still available for updating one MP3 directly. It infers title, album, and artist from the filename and folders. Pass `--title`, `--album`, or `--artist` to override them. Use `--no-metadata` with `download` to skip enrichment and refreshes.
 
 To restrict the download to matching album names, repeat `--album` as needed:
 

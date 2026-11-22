@@ -6,7 +6,7 @@ from functools import lru_cache
 from urllib.parse import urlencode
 
 from .base import MetadataProvider
-from .common import TrackMetadata, album_matches, credit_name, json_get, normalize
+from .common import TrackMetadata, album_matches, credit_name, json_get, normalize, title_matches
 
 
 class MusicBrainzMetadataProvider(MetadataProvider):
@@ -18,11 +18,10 @@ class MusicBrainzMetadataProvider(MetadataProvider):
         query = f'recording:"{title}" AND release:"{album}" AND artist:"{artist}"'
         params = urlencode({"query": query, "fmt": "json", "limit": 10, "inc": "releases"})
         payload = json_get(f"https://musicbrainz.org/ws/2/recording/?{params}")
-        expected_title = normalize(title)
         expected_artist = normalize(artist)
         candidates = []
         for recording in payload.get("recordings", []):
-            if normalize(recording.get("title", "")) != expected_title:
+            if not title_matches(title, recording.get("title", "")):
                 continue
             performers = credit_name(recording.get("artist-credit", [])) or artist
             for release in recording.get("releases", []):

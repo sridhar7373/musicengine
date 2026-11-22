@@ -6,7 +6,19 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from mutagen.id3 import APIC, ID3, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+from mutagen.id3 import (
+    APIC,
+    ID3,
+    ID3NoHeaderError,
+    TALB,
+    TCON,
+    TDRC,
+    TIT2,
+    TPE1,
+    TPE2,
+    TPOS,
+    TRCK,
+)
 from mutagen.mp3 import MP3
 
 from .metadata import TrackMetadata
@@ -26,6 +38,18 @@ def _remove_site_frames(tags) -> None:
     for key, frame in list(tags.items()):
         if "isaimini" in key.casefold() or "isaimini" in repr(frame).casefold():
             del tags[key]
+
+
+def has_site_branding(path: Path) -> bool:
+    """Return whether an MP3 still contains Isaimini-owned ID3 frames."""
+    try:
+        tags = ID3(path)
+    except ID3NoHeaderError:
+        return False
+    return any(
+        "isaimini" in key.casefold() or "isaimini" in repr(frame).casefold()
+        for key, frame in tags.items()
+    )
 
 
 def update_mp3(path: Path, metadata: TrackMetadata, cover: tuple[bytes, str] | None) -> bool:

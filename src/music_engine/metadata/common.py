@@ -68,6 +68,22 @@ def album_matches(expected: str, actual: str) -> bool:
     )
 
 
+def title_matches(expected: str, actual: str) -> bool:
+    """Match song-title transliterations while rejecting short vague names."""
+    expected_name, actual_name = normalize(expected), normalize(actual)
+    return bool(
+        expected_name
+        and actual_name
+        and (
+            expected_name == actual_name
+            or (
+                min(len(expected_name), len(actual_name)) >= 8
+                and SequenceMatcher(None, expected_name, actual_name).ratio() >= 0.84
+            )
+        )
+    )
+
+
 def credit_name(credit: list[dict]) -> str:
     pieces = []
     for item in credit:

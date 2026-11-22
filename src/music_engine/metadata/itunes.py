@@ -6,7 +6,7 @@ import time
 from urllib.parse import urlencode
 
 from .base import MetadataProvider
-from .common import TrackMetadata, album_matches, json_get, normalize
+from .common import TrackMetadata, album_matches, json_get, normalize, title_matches
 
 
 class ITunesMetadataProvider(MetadataProvider):
@@ -78,7 +78,7 @@ class ITunesMetadataProvider(MetadataProvider):
     def _find_song(results: list[dict], title: str, album: str, artist: str) -> dict | None:
         candidates = []
         for result in results:
-            if normalize(result.get("trackName", "")) != normalize(title):
+            if not title_matches(title, result.get("trackName", "")):
                 continue
             if not album_matches(album, result.get("collectionName", "")):
                 continue
