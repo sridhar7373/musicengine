@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
@@ -218,7 +219,12 @@ class IsaiminiProvider(BaseProvider):
             time.sleep(delay)
         return tracks
 
-    def download_track(self, track: Track, destination: Path) -> int:
+    def download_track(
+        self,
+        track: Track,
+        destination: Path,
+        progress: Callable[[int, int | None], None] | None = None,
+    ) -> int:
         """Stream a song into a unique temporary file, then move it into place."""
         source_url = _checked_page_url(track.url)
         if not urlparse(source_url).path.startswith("/download/"):
@@ -237,6 +243,11 @@ class IsaiminiProvider(BaseProvider):
                     raise RuntimeError(
                         f"Expected audio for {track.title}, received {content_type}."
                     )
+                raw_length = response.headers.get("Content-Length")
+                try:
+                    total = int(raw_length) if raw_length else None
+                except ValueError:
+                    total = None
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 size = 0
                 with tempfile.NamedTemporaryFile(
@@ -250,6 +261,8 @@ class IsaiminiProvider(BaseProvider):
                     while chunk := response.read(128 * 1024):
                         output.write(chunk)
                         size += len(chunk)
+                        if progress:
+                            progress(size, total)
             temporary_path.replace(destination)
             return size
         except Exception:

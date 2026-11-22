@@ -143,8 +143,12 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
     failures = 0
     for index, track in enumerate(pending, start=1):
         destination = _track_destination(args.output, artist, track)
+        console.start_download(f"Downloading {index:02d}/{len(pending)} {track.title}")
         try:
-            provider.download_track(track, destination)
+            size = provider.download_track(
+                track, destination, progress=console.download_progress
+            )
+            console.finish_download(size)
             downloaded += 1
             if not args.no_metadata:
                 try:
@@ -158,12 +162,11 @@ def run_download(args: argparse.Namespace, console: Console) -> int:
                     if args.verbose:
                         console.error(f"Metadata skipped for {track.title}: {exc}")
         except (OSError, RuntimeError, ValueError) as exc:
+            console.end_progress()
             failures += 1
             console.error(f"{track.album} / {track.title}: {exc}")
-        console.progress("Downloading", index, len(pending))
         if args.delay and index < len(pending):
             time.sleep(args.delay)
-    console.end_progress()
 
     result = [f"{console.paint(str(downloaded), 'green')} downloaded", f"{skipped} skipped"]
     if not args.no_metadata:

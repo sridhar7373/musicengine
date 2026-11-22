@@ -34,7 +34,7 @@ You can still pass an artist name or direct artist page URL to override the save
 music-engine download "Vijay Antony" --output ~/Music
 ```
 
-The default provider resolves the artist name from its directory. The CLI shows a compact colored summary and progress bar, then asks before downloading. To preview without downloading:
+The default provider resolves the artist name from its directory. The CLI shows a compact colored summary and per-track download progress with transfer speed, then asks before downloading. To preview without downloading:
 
 ```sh
 music-engine download "Vijay Antony" --output ~/Music --dry-run

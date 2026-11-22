@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -45,5 +46,10 @@ class BaseProvider(ABC):
         """Return the downloadable tracks listed on an album page."""
 
     @abstractmethod
-    def download_track(self, track: Track, destination: Path) -> int:
+    def download_track(
+        self,
+        track: Track,
+        destination: Path,
+        progress: Callable[[int, int | None], None] | None = None,
+    ) -> int:
         """Download a track and return its size in bytes."""
